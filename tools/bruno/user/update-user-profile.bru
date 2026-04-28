@@ -1,0 +1,21 @@
+meta {
+  name: Update User Profile
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/user-profile
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "preferred_destinations": ["Italy", "Japan", "Portugal"],
+    "travel_style": "cultural",
+    "budget": "medium",
+    "dietary_restrictions": ["vegetarian"],
+    "interests": ["history", "food", "architecture"]
+  }
+}

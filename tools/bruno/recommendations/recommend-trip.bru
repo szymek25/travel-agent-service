@@ -1,0 +1,19 @@
+meta {
+  name: Recommend Trip
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/recommend-trip
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "destination": "Italy",
+    "travel_style": "cultural",
+    "budget": "medium"
+  }
+}
