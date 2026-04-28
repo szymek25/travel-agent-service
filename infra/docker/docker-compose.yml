@@ -1,0 +1,13 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=development
+      - LLM_PROVIDER=openai
+      - VECTOR_STORE=chroma
+    volumes:
+      - ../../data:/app/data
