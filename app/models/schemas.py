@@ -45,6 +45,7 @@ class UserProfileRequest(BaseModel):
 
 
 class UserProfileResponse(BaseModel):
+    user_id: str
     preferred_destinations: List[str]
     travel_style: Optional[str]
     budget: Optional[str]

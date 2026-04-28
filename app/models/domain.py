@@ -4,6 +4,7 @@ from typing import List, Optional
 
 @dataclass
 class UserProfile:
+    user_id: str = "default"
     preferred_destinations: List[str] = field(default_factory=list)
     travel_style: Optional[str] = None
     budget: Optional[str] = None

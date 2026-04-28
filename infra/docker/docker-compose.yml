@@ -9,5 +9,17 @@ services:
       - ENV=development
       - LLM_PROVIDER=openai
       - VECTOR_STORE=chroma
+      - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8001
     volumes:
       - ../../data:/app/data
+    depends_on:
+      - dynamodb-local
+  dynamodb-local:
+   command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data -port 8001"
+   image: "amazon/dynamodb-local:latest"
+   container_name: dynamodb-local
+   ports:
+     - "8001:8001"
+   volumes:
+     - "./docker/dynamodb:/home/dynamodblocal/data"
+   working_dir: /home/dynamodblocal

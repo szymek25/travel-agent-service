@@ -5,7 +5,11 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/user-profile
+  url: {{baseUrl}}/user-profile/{{userId}}
   body: none
   auth: none
+}
+
+vars:pre-request {
+  userId: user-123
 }
