@@ -1,9 +1,10 @@
 from typing import List
 
-from strands import Agent as StrandsAgent
+from strands import Agent as StrandsAgent, tool
 
 from app.agents.preference_extractor import PreferenceExtractorAgent
-from app.agents.providers import LLMProvider, OllamaProvider
+from app.agents.providers import LLMProvider, create_provider
+from app.agents.recommendations_agent import RecommendationsAgent
 from app.models.domain import AgentResult, UserPreferences
 
 _SYSTEM_PROMPT = (
@@ -16,7 +17,8 @@ _SYSTEM_PROMPT = (
     "- If travel style or budget are not yet known and would meaningfully improve your recommendations, "
     "ask the user 1-2 focused follow-up questions to gather the missing information.\n"
     "- You may still provide helpful general advice while asking for clarification.\n"
-    "- Once all key preferences are known, give fully tailored, specific recommendations."
+    "- Once all key preferences are known, call the get_travel_recommendations tool to fetch "
+    "personalised destination suggestions from the agency's portfolio, then present them to the user."
 )
 
 
@@ -77,10 +79,50 @@ def _build_context_message(message: str, prefs: UserPreferences) -> str:
 class TravelAgent:
     def __init__(self, llm_provider: LLMProvider | None = None) -> None:
         if llm_provider is None:
-            llm_provider = OllamaProvider()
+            llm_provider = create_provider("travel_agent")
+
+        self._recommendations_agent = RecommendationsAgent()
+        self._last_recommendations: List[dict] = []
+
+        # Build the recommendations tool as a closure so the Strands agent can call it
+        # autonomously when it decides to propose destinations.
+        this = self
+
+        @tool
+        def get_travel_recommendations(
+            travel_style: str = "",
+            budget: str = "",
+            preferred_destinations: str = "",
+            interests: str = "",
+        ) -> str:
+            """Get personalised destination recommendations from the agency's travel portfolio.
+            Call this when you are ready to propose specific destinations to the user.
+            Leave parameters empty for any preference that is not yet known.
+
+            Args:
+                travel_style: Traveller's style (e.g. beach, adventure, cultural, city break, ski, luxury).
+                budget: Budget as a description or amount (e.g. luxury, mid-range, 2000).
+                preferred_destinations: Comma-separated preferred destinations or regions.
+                interests: Comma-separated interests (e.g. hiking, museums, food tours, diving).
+            """
+            prefs = UserPreferences(
+                travel_style=travel_style or None,
+                budget=budget or None,
+                preferred_destinations=[d.strip() for d in preferred_destinations.split(",") if d.strip()],
+                interests=[i.strip() for i in interests.split(",") if i.strip()],
+            )
+            recs = this._recommendations_agent.get_recommendations(prefs)
+            this._last_recommendations.clear()
+            this._last_recommendations.extend(recs)
+            if not recs:
+                return "No matching recommendations found in the portfolio."
+            return "\n".join(f"- {r['destination']}: {r['description']}" for r in recs)
+
+        self._get_travel_recommendations_tool = get_travel_recommendations
         self._agent = StrandsAgent(
             model=llm_provider.get_model(),
             system_prompt=_SYSTEM_PROMPT,
+            tools=[get_travel_recommendations],
             state={"user_preferences": {}},
         )
         self._extractor = PreferenceExtractorAgent(llm_provider=llm_provider)
@@ -95,37 +137,15 @@ class TravelAgent:
         # Seed agent state with merged preferences
         self._agent.state.set("user_preferences", merged.to_dict())
 
+        # Reset per-turn recommendations; the tool populates this list if called by the agent
+        self._last_recommendations.clear()
+
         # Build context-enriched message so the main agent sees current preferences
         enriched_message = _build_context_message(message, merged)
         result = self._agent(enriched_message)
 
-        recommendations_preview = self._get_recommendations_preview(merged)
         return AgentResult(
             reply=str(result),
             extracted_preferences=merged,
-            recommendations_preview=recommendations_preview,
-        )
-
-    def _get_recommendations_preview(self, preferences: UserPreferences) -> List[dict]:
-        travel_style = preferences.travel_style or ""
-        style_map = {
-            "beach": [
-                {"destination": "Bali, Indonesia", "description": "Stunning beaches and vibrant culture."},
-                {"destination": "Maldives", "description": "Crystal clear waters and luxury overwater bungalows."},
-            ],
-            "adventure": [
-                {"destination": "Patagonia, Argentina", "description": "Dramatic landscapes and world-class hiking."},
-                {"destination": "Nepal", "description": "Gateway to the Himalayas and legendary trekking routes."},
-            ],
-            "cultural": [
-                {"destination": "Kyoto, Japan", "description": "Ancient temples and traditional Japanese culture."},
-                {"destination": "Rome, Italy", "description": "Millennia of history, art, and cuisine."},
-            ],
-        }
-        return style_map.get(
-            travel_style,
-            [
-                {"destination": "Paris, France", "description": "The city of light, love, and world-class cuisine."},
-                {"destination": "Tokyo, Japan", "description": "A perfect blend of tradition and futuristic innovation."},
-            ],
+            recommendations_preview=list(self._last_recommendations),
         )

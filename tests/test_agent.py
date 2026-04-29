@@ -5,6 +5,7 @@ import pytest
 
 from app.agents.agent import TravelAgent, _SYSTEM_PROMPT, _build_context_message
 from app.agents.providers import BedrockProvider, LLMProvider, OllamaProvider
+from app.agents.recommendations_agent import RecommendationsAgent
 from app.models.domain import AgentResult, UserPreferences
 
 
@@ -22,7 +23,10 @@ def _make_provider(reply: str = "Here are some travel tips!") -> LLMProvider:
     mock_agent_result = MagicMock()
     mock_agent_result.__str__ = lambda self: reply
 
-    with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
+    with (
+        patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+        patch("app.agents.agent.RecommendationsAgent"),
+    ):
         MockStrandsAgent.return_value = MagicMock(return_value=mock_agent_result)
         agent = TravelAgent(llm_provider=mock_provider)
 
@@ -51,15 +55,25 @@ class TestTravelAgentConstruction:
         provider = MagicMock(spec=LLMProvider)
         provider.get_model.return_value = mock_model
 
-        with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
+        with (
+            patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+            patch("app.agents.agent.RecommendationsAgent"),
+        ):
             TravelAgent(llm_provider=provider)
-            MockStrandsAgent.assert_called_once_with(model=mock_model, system_prompt=_SYSTEM_PROMPT, state={"user_preferences": {}})
+            _, kwargs = MockStrandsAgent.call_args
+            assert kwargs["model"] is mock_model
+            assert kwargs["system_prompt"] == _SYSTEM_PROMPT
+            assert kwargs["state"] == {"user_preferences": {}}
+            # Tool list should contain exactly the recommendations tool
+            assert len(kwargs["tools"]) == 1
+            assert kwargs["tools"][0].tool_name == "get_travel_recommendations"
 
     def test_defaults_to_ollama_provider_when_none_given(self) -> None:
         mock_model = MagicMock()
         with (
             patch("strands.models.ollama.OllamaModel", return_value=mock_model),
             patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+            patch("app.agents.agent.RecommendationsAgent"),
         ):
             TravelAgent()
             MockStrandsAgent.assert_called_once()
@@ -70,10 +84,25 @@ class TestTravelAgentConstruction:
         provider = MagicMock(spec=LLMProvider)
         provider.get_model.return_value = MagicMock()
 
-        with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
+        with (
+            patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+            patch("app.agents.agent.RecommendationsAgent"),
+        ):
             TravelAgent(llm_provider=provider)
             _, kwargs = MockStrandsAgent.call_args
             assert "travel advisor" in kwargs["system_prompt"].lower()
+
+    def test_system_prompt_mentions_tool(self) -> None:
+        provider = MagicMock(spec=LLMProvider)
+        provider.get_model.return_value = MagicMock()
+
+        with (
+            patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+            patch("app.agents.agent.RecommendationsAgent"),
+        ):
+            TravelAgent(llm_provider=provider)
+            _, kwargs = MockStrandsAgent.call_args
+            assert "get_travel_recommendations" in kwargs["system_prompt"]
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +118,10 @@ class TestTravelAgentRun:
         mock_strands_result = MagicMock()
         mock_strands_result.__str__ = lambda self: reply
 
-        with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
+        with (
+            patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+            patch("app.agents.agent.RecommendationsAgent"),
+        ):
             mock_inner = MagicMock(return_value=mock_strands_result)
             MockStrandsAgent.return_value = mock_inner
             agent = TravelAgent(llm_provider=provider)
@@ -116,7 +148,10 @@ class TestTravelAgentRun:
         mock_strands_result = MagicMock()
         mock_strands_result.__str__ = lambda self: "ok"
 
-        with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
+        with (
+            patch("app.agents.agent.StrandsAgent") as MockStrandsAgent,
+            patch("app.agents.agent.RecommendationsAgent"),
+        ):
             mock_inner = MagicMock(return_value=mock_strands_result)
             MockStrandsAgent.return_value = mock_inner
             agent = TravelAgent(llm_provider=provider)
@@ -135,21 +170,22 @@ class TestTravelAgentRun:
         assert result.extracted_preferences.travel_style == "beach"
         assert result.extracted_preferences.budget == "luxury"
 
-    def test_result_contains_recommendations_preview(self) -> None:
+    def test_result_contains_recommendations_preview_as_list(self) -> None:
+        # recommendations_preview is populated only when the Strands agent calls the tool;
+        # with a mocked agent it stays empty — assert the type is correct.
         agent = self._make_agent()
         result = agent.run("adventure hiking trip")
         assert isinstance(result.recommendations_preview, list)
-        assert len(result.recommendations_preview) > 0
 
-    def test_empty_message_returns_default_recommendations(self) -> None:
+    def test_recommendations_preview_reset_each_run(self) -> None:
+        # Manually populate the sink from a previous turn; it must be cleared on the next run.
         agent = self._make_agent()
-        result = agent.run("")
-        assert isinstance(result.recommendations_preview, list)
-        assert len(result.recommendations_preview) > 0
+        agent._last_recommendations.append({"destination": "Stale", "description": "Old data."})
+        result = agent.run("new message")
+        assert result.recommendations_preview == []
 
     def test_empty_message_has_no_extracted_preferences(self) -> None:
         agent = self._make_agent()
-        # extractor already returns UserPreferences() by default; empty message stays empty
         result = agent.run("")
         assert result.extracted_preferences == UserPreferences()
 
@@ -190,61 +226,97 @@ class TestBuildContextMessage:
 
 
 # ---------------------------------------------------------------------------
-# TravelAgent._get_recommendations_preview
+# get_travel_recommendations tool
 # ---------------------------------------------------------------------------
 
 
-class TestGetRecommendationsPreview:
+class TestGetTravelRecommendationsTool:
+    """Tests for the @tool-decorated closure created inside TravelAgent.__init__."""
+
     @pytest.fixture(autouse=True)
-    def agent(self) -> TravelAgent:
+    def agent(self) -> None:
         provider = MagicMock(spec=LLMProvider)
         provider.get_model.return_value = MagicMock()
-        with patch("app.agents.agent.StrandsAgent"):
+        with (
+            patch("app.agents.agent.StrandsAgent"),
+            patch("app.agents.agent.RecommendationsAgent"),
+        ):
             self._agent = TravelAgent(llm_provider=provider)
+        # Replace the real RecommendationsAgent with a mock after construction
+        self._mock_rec_agent = MagicMock(spec=RecommendationsAgent)
+        self._agent._recommendations_agent = self._mock_rec_agent
 
-    def test_beach_style_returns_beach_destinations(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="beach"))
-        destinations = [r["destination"] for r in recs]
-        assert any("Bali" in d or "Maldives" in d for d in destinations)
+    def _call_tool(self, **kwargs: str) -> str:
+        """Invoke the tool function directly (bypassing the Strands dispatch layer)."""
+        return self._agent._get_travel_recommendations_tool(**kwargs)
 
-    def test_adventure_style_returns_adventure_destinations(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="adventure"))
-        destinations = [r["destination"] for r in recs]
-        assert any("Patagonia" in d or "Nepal" in d for d in destinations)
+    def test_tool_name_is_get_travel_recommendations(self) -> None:
+        assert self._agent._get_travel_recommendations_tool.tool_name == "get_travel_recommendations"
 
-    def test_cultural_style_returns_cultural_destinations(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="cultural"))
-        destinations = [r["destination"] for r in recs]
-        assert any("Kyoto" in d or "Rome" in d for d in destinations)
+    def test_tool_calls_recommendations_agent(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool(travel_style="beach")
+        self._mock_rec_agent.get_recommendations.assert_called_once()
 
-    def test_unknown_style_returns_default_recommendations(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="unknown_style"))
-        assert isinstance(recs, list)
-        assert len(recs) > 0
+    def test_tool_passes_travel_style(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool(travel_style="adventure")
+        prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
+        assert prefs.travel_style == "adventure"
 
-    def test_missing_travel_style_returns_default_recommendations(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences())
-        assert isinstance(recs, list)
-        assert len(recs) > 0
+    def test_tool_passes_budget(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool(budget="luxury")
+        prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
+        assert prefs.budget == "luxury"
 
-    def test_default_recommendations_include_paris_and_tokyo(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences())
-        destinations = [r["destination"] for r in recs]
-        assert any("Paris" in d for d in destinations)
-        assert any("Tokyo" in d for d in destinations)
+    def test_tool_parses_comma_separated_destinations(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool(preferred_destinations="Japan, Thailand")
+        prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
+        assert "Japan" in prefs.preferred_destinations
+        assert "Thailand" in prefs.preferred_destinations
 
-    def test_each_recommendation_has_destination_and_description(self) -> None:
-        for style in ["beach", "adventure", "cultural", ""]:
-            recs = self._agent._get_recommendations_preview(UserPreferences(travel_style=style or None))
-            for rec in recs:
-                assert "destination" in rec
-                assert "description" in rec
-                assert isinstance(rec["destination"], str)
-                assert isinstance(rec["description"], str)
+    def test_tool_parses_comma_separated_interests(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool(interests="hiking, diving")
+        prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
+        assert "hiking" in prefs.interests
+        assert "diving" in prefs.interests
 
-    def test_empty_preferences_returns_list(self) -> None:
-        recs = self._agent._get_recommendations_preview(UserPreferences())
-        assert isinstance(recs, list)
+    def test_tool_empty_strings_become_none_or_empty_list(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool()
+        prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
+        assert prefs.travel_style is None
+        assert prefs.budget is None
+        assert prefs.preferred_destinations == []
+        assert prefs.interests == []
+
+    def test_tool_updates_last_recommendations(self) -> None:
+        recs = [{"destination": "Bali, Indonesia", "description": "Stunning beaches."}]
+        self._mock_rec_agent.get_recommendations.return_value = recs
+        self._call_tool(travel_style="beach")
+        assert self._agent._last_recommendations == recs
+
+    def test_tool_clears_previous_recommendations(self) -> None:
+        self._agent._last_recommendations.append({"destination": "Stale", "description": "Old."})
+        self._mock_rec_agent.get_recommendations.return_value = []
+        self._call_tool()
+        assert self._agent._last_recommendations == []
+
+    def test_tool_returns_formatted_string(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = [
+            {"destination": "Nepal", "description": "Legendary Himalayan trekking."},
+        ]
+        result = self._call_tool(travel_style="adventure")
+        assert "Nepal" in result
+        assert "Legendary Himalayan trekking." in result
+
+    def test_tool_returns_no_results_message_when_empty(self) -> None:
+        self._mock_rec_agent.get_recommendations.return_value = []
+        result = self._call_tool()
+        assert "No matching recommendations" in result
 
 
 # ---------------------------------------------------------------------------

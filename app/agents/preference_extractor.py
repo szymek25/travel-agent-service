@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 from strands import Agent as StrandsAgent
 from strands.types.exceptions import StructuredOutputException
 
-from app.agents.providers import LLMProvider, OllamaProvider
+from app.agents.providers import LLMProvider, create_provider
 from app.models.domain import UserPreferences
 
 _EXTRACTION_SYSTEM_PROMPT = (
@@ -80,7 +80,7 @@ class PreferenceExtractorAgent:
 
     def __init__(self, llm_provider: LLMProvider | None = None) -> None:
         if llm_provider is None:
-            llm_provider = OllamaProvider()
+            llm_provider = create_provider("extractor_agent")
         self._model = llm_provider.get_model()
 
     def extract(self, message: str) -> UserPreferences:

@@ -7,6 +7,7 @@ A production-ready FastAPI backend for an AI Travel Agent application with a mod
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
+- [Agent Architecture](#agent-architecture)
 - [API Endpoints](#api-endpoints)
 - [Run Locally](#run-locally)
 - [Run with Docker](#run-with-docker)
@@ -30,8 +31,10 @@ travel-agent-service/
 │   │   ├── config.py               # Pydantic settings (reads from .env)
 │   │   └── dependencies.py         # FastAPI dependency injection helpers
 │   ├── agents/
-│   │   ├── agent.py                # TravelAgent — Strands-backed LLM agent
-│   │   └── providers.py            # LLMProvider abstraction (OllamaProvider, BedrockProvider)
+│   │   ├── agent.py                # TravelAgent — main conversational LLM agent with tool use
+│   │   ├── preference_extractor.py # PreferenceExtractorAgent — structured preference extraction
+│   │   ├── recommendations_agent.py # RecommendationsAgent — portfolio-aware destination recommender
+│   │   └── providers.py            # LLMProvider abstraction + create_provider() factory
 │   ├── rag/
 │   │   ├── embeddings.py           # Placeholder embedding service
 │   │   └── retriever.py            # Placeholder document retriever
@@ -59,9 +62,67 @@ travel-agent-service/
 **Key design decisions:**
 - **Routes** are thin — they delegate all logic to **services**.
 - **Services** orchestrate business logic and call the **agent**.
-- The **TravelAgent** is a placeholder that will be replaced by an LLM-backed agent.
+- **TravelAgent** uses the Strands Agents SDK. It exposes `RecommendationsAgent` as a callable tool so the LLM decides autonomously when to fetch destination suggestions.
 - **RAG modules** (`embeddings.py`, `retriever.py`) are structured stubs ready for integration.
-- **In-memory user profile** — will be replaced by a persistent store (e.g. DynamoDB) on AWS.
+- **DynamoDB** is used as the persistent user profile store (local DynamoDB for development).
+
+---
+
+## Agent Architecture
+
+The service uses three specialised LLM agents, each independently configurable via environment variables (see [Environment Variables](#environment-variables)).
+
+```
+User message
+     │
+     ▼
+┌─────────────────────────────────────────────┐
+│              TravelAgent                    │
+│  (app/agents/agent.py)                      │
+│                                             │
+│  1. PreferenceExtractorAgent                │
+│     └─ Extracts structured preferences      │
+│        from the raw user message            │
+│                                             │
+│  2. Main Strands agent (conversational)     │
+│     └─ Receives enriched message with       │
+│        known preferences prepended          │
+│     └─ Has access to tool:                  │
+│        get_travel_recommendations           │
+│           │                                 │
+│           ▼  (called only when the LLM      │
+│              decides to propose trips)      │
+│        RecommendationsAgent                 │
+│        └─ Queries agency portfolio with     │
+│           user preferences as context       │
+│           and returns 2-3 destinations      │
+└─────────────────────────────────────────────┘
+     │
+     ▼
+  AgentResult
+  ├── reply                  (conversational response)
+  ├── extracted_preferences  (merged UserPreferences)
+  └── recommendations_preview (destinations if tool was called, else [])
+```
+
+### Agents
+
+| Agent | File | Role |
+|-------|------|------|
+| `TravelAgent` | `app/agents/agent.py` | Main conversational agent. Merges preferences, enriches the prompt, and invokes the Strands LLM with the recommendations tool available. |
+| `PreferenceExtractorAgent` | `app/agents/preference_extractor.py` | Uses structured output to pull `travel_style`, `budget`, `destinations`, `interests`, and `dietary_restrictions` from a free-text message. |
+| `RecommendationsAgent` | `app/agents/recommendations_agent.py` | Portfolio-aware recommender. Contains the agency's full catalogue of destinations and packages. Called as a Strands tool (`get_travel_recommendations`) only when the main agent decides to propose trips. Returns 2-3 tailored destinations. |
+
+### `get_travel_recommendations` tool
+
+Registered on `TravelAgent`'s Strands agent. The LLM calls it autonomously when it is ready to propose specific destinations. Parameters (all optional strings the model fills from conversation context):
+
+| Parameter | Description |
+|-----------|-------------|
+| `travel_style` | e.g. `beach`, `adventure`, `cultural`, `city break`, `ski`, `luxury` |
+| `budget` | e.g. `luxury`, `mid-range`, `2000` |
+| `preferred_destinations` | Comma-separated regions/countries |
+| `interests` | Comma-separated interests, e.g. `hiking, diving` |
 
 ---
 
@@ -143,8 +204,14 @@ Copy `.env.example` to `.env` and adjust values as needed.
 | `ENV` | `development` | Runtime environment (`development`, `staging`, `production`) |
 | `LLM_PROVIDER` | `ollama` | LLM backend to use (`ollama` or `bedrock`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server address (used when `LLM_PROVIDER=ollama`) |
-| `OLLAMA_MODEL_ID` | `llama3.1` | Ollama model name (used when `LLM_PROVIDER=ollama`) |
-| `BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID (used when `LLM_PROVIDER=bedrock`) |
+| `OLLAMA_MODEL_ID` | `llama3.1` | Global default Ollama model (used when `LLM_PROVIDER=ollama`) |
+| `OLLAMA_MODEL_ID_TRAVEL_AGENT` | _(empty)_ | Ollama model override for the main travel agent; falls back to `OLLAMA_MODEL_ID` |
+| `OLLAMA_MODEL_ID_EXTRACTOR_AGENT` | _(empty)_ | Ollama model override for the preference extractor; falls back to `OLLAMA_MODEL_ID` |
+| `OLLAMA_MODEL_ID_RECOMMENDATIONS_AGENT` | _(empty)_ | Ollama model override for the recommendations agent; falls back to `OLLAMA_MODEL_ID` |
+| `BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Global default Bedrock model (used when `LLM_PROVIDER=bedrock`) |
+| `BEDROCK_MODEL_ID_TRAVEL_AGENT` | _(empty)_ | Bedrock model override for the main travel agent; falls back to `BEDROCK_MODEL_ID` |
+| `BEDROCK_MODEL_ID_EXTRACTOR_AGENT` | _(empty)_ | Bedrock model override for the preference extractor; falls back to `BEDROCK_MODEL_ID` |
+| `BEDROCK_MODEL_ID_RECOMMENDATIONS_AGENT` | _(empty)_ | Bedrock model override for the recommendations agent; falls back to `BEDROCK_MODEL_ID` |
 | `VECTOR_STORE` | `chroma` | Vector store for RAG (future integration) |
 | `DYNAMODB_ENDPOINT_URL` | `http://localhost:8001` | DynamoDB endpoint (use local URL for dev, omit for AWS) |
 | `DYNAMODB_TABLE_USER_PROFILES` | `UserProfiles` | DynamoDB table name for user profiles |
