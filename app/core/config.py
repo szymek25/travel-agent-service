@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     BEDROCK_MODEL_ID_EXTRACTOR_AGENT: str = ""
     BEDROCK_MODEL_ID_RECOMMENDATIONS_AGENT: str = ""
     VECTOR_STORE: str = "chroma"
+    SESSION_STORAGE_DIR: str = "/tmp/travel-agent-sessions"
     DYNAMODB_ENDPOINT_URL: str = "http://localhost:8001"
     DYNAMODB_TABLE_USER_PROFILES: str = "UserProfiles"
     AWS_REGION: str = "us-east-1"

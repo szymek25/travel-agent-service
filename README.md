@@ -213,6 +213,7 @@ Copy `.env.example` to `.env` and adjust values as needed.
 | `BEDROCK_MODEL_ID_EXTRACTOR_AGENT` | _(empty)_ | Bedrock model override for the preference extractor; falls back to `BEDROCK_MODEL_ID` |
 | `BEDROCK_MODEL_ID_RECOMMENDATIONS_AGENT` | _(empty)_ | Bedrock model override for the recommendations agent; falls back to `BEDROCK_MODEL_ID` |
 | `VECTOR_STORE` | `chroma` | Vector store for RAG (future integration) |
+| `SESSION_STORAGE_DIR` | `/tmp/travel-agent-sessions` | Local path for `FileSessionManager` storage; swap for `S3SessionManager` on AWS |
 | `DYNAMODB_ENDPOINT_URL` | `http://localhost:8001` | DynamoDB endpoint (use local URL for dev, omit for AWS) |
 | `DYNAMODB_TABLE_USER_PROFILES` | `UserProfiles` | DynamoDB table name for user profiles |
 | `AWS_REGION` | `us-east-1` | AWS region |

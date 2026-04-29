@@ -1,10 +1,13 @@
 from typing import List
+import uuid
 
 from strands import Agent as StrandsAgent, tool
+from strands.session.file_session_manager import FileSessionManager
 
 from app.agents.preference_extractor import PreferenceExtractorAgent
 from app.agents.providers import LLMProvider, create_provider
 from app.agents.recommendations_agent import RecommendationsAgent
+from app.core.config import settings
 from app.models.domain import AgentResult, UserPreferences
 
 _SYSTEM_PROMPT = (
@@ -77,7 +80,7 @@ def _build_context_message(message: str, prefs: UserPreferences) -> str:
 
 
 class TravelAgent:
-    def __init__(self, llm_provider: LLMProvider | None = None) -> None:
+    def __init__(self, llm_provider: LLMProvider | None = None, session_id: str | None = None) -> None:
         if llm_provider is None:
             llm_provider = create_provider("travel_agent")
 
@@ -119,11 +122,16 @@ class TravelAgent:
             return "\n".join(f"- {r['destination']}: {r['description']}" for r in recs)
 
         self._get_travel_recommendations_tool = get_travel_recommendations
+        session_manager = FileSessionManager(
+            session_id=session_id or str(uuid.uuid4()),
+            storage_dir=settings.SESSION_STORAGE_DIR,
+        )
         self._agent = StrandsAgent(
             model=llm_provider.get_model(),
             system_prompt=_SYSTEM_PROMPT,
             tools=[get_travel_recommendations],
             state={"user_preferences": {}},
+            session_manager=session_manager,
         )
         self._extractor = PreferenceExtractorAgent(llm_provider=llm_provider)
 

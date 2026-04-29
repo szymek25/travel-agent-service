@@ -5,6 +5,7 @@ from typing import List, Optional
 class ChatRequest(BaseModel):
     message: str
     user_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class UserPreferencesSchema(BaseModel):
@@ -22,6 +23,7 @@ class RecommendationPreview(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    session_id: str
     extracted_preferences: UserPreferencesSchema
     recommendations_preview: List[RecommendationPreview]
 

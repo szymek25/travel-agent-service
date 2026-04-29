@@ -13,10 +13,19 @@ post {
 body:json {
   {
     "message": "I want to travel somewhere warm in Europe",
-    "user_id": "{{user-id}}"
+    "user_id": "{{user-id}}",
+    "session_id" "{{session-id}}"
   }
 }
 
 vars:pre-request {
-  user-id: user-123
+  user-id: user-12345678
+  session-id: ""
+}
+
+script:post-response {
+  const sessionId = res.getBody()?.session_id;
+  if (sessionId) {
+    bru.setVar("session-id", sessionId);
+  }
 }

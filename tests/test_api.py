@@ -37,6 +37,7 @@ def test_health_check() -> None:
 def _make_chat_response(travel_style: str | None = None, budget: str | None = None) -> ChatResponse:
     return ChatResponse(
         reply="Here are some travel recommendations!",
+        session_id="test-session-id",
         extracted_preferences=UserPreferencesSchema(travel_style=travel_style, budget=budget),
         recommendations_preview=[RecommendationPreview(destination="Bali", description="Beautiful island")],
     )
