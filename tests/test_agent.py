@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.agents.agent import TravelAgent, _SYSTEM_PROMPT
+from app.agents.agent import TravelAgent, _SYSTEM_PROMPT, _build_context_message
 from app.agents.providers import BedrockProvider, LLMProvider, OllamaProvider
 from app.models.domain import AgentResult, UserPreferences
 
@@ -25,6 +25,10 @@ def _make_provider(reply: str = "Here are some travel tips!") -> LLMProvider:
     with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
         MockStrandsAgent.return_value = MagicMock(return_value=mock_agent_result)
         agent = TravelAgent(llm_provider=mock_provider)
+
+    # Stub out the extractor so tests don't hit a real LLM
+    agent._extractor = MagicMock()
+    agent._extractor.extract.return_value = UserPreferences()
 
     # Attach the mocked strands agent so callers can inspect it
     agent._strands_mock_result = mock_agent_result
@@ -90,6 +94,10 @@ class TestTravelAgentRun:
             MockStrandsAgent.return_value = mock_inner
             agent = TravelAgent(llm_provider=provider)
 
+        # Stub extractor — tests that care about preferences configure it themselves
+        agent._extractor = MagicMock()
+        agent._extractor.extract.return_value = UserPreferences()
+
         return agent
 
     def test_returns_agent_result_instance(self) -> None:
@@ -113,11 +121,16 @@ class TestTravelAgentRun:
             MockStrandsAgent.return_value = mock_inner
             agent = TravelAgent(llm_provider=provider)
 
+        agent._extractor = MagicMock()
+        agent._extractor.extract.return_value = UserPreferences()
+
         agent.run("I love hiking")
-        agent._agent.assert_called_once_with("I love hiking")
+        call_arg = agent._agent.call_args[0][0]
+        assert "I love hiking" in call_arg
 
     def test_result_contains_extracted_preferences(self) -> None:
         agent = self._make_agent()
+        agent._extractor.extract.return_value = UserPreferences(travel_style="beach", budget="luxury")
         result = agent.run("I want a luxury beach holiday")
         assert result.extracted_preferences.travel_style == "beach"
         assert result.extracted_preferences.budget == "luxury"
@@ -136,109 +149,44 @@ class TestTravelAgentRun:
 
     def test_empty_message_has_no_extracted_preferences(self) -> None:
         agent = self._make_agent()
+        # extractor already returns UserPreferences() by default; empty message stays empty
         result = agent.run("")
         assert result.extracted_preferences == UserPreferences()
 
 
 # ---------------------------------------------------------------------------
-# TravelAgent._extract_preferences
+# _build_context_message
 # ---------------------------------------------------------------------------
 
 
-class TestExtractPreferences:
-    @pytest.fixture(autouse=True)
-    def agent(self) -> TravelAgent:
-        provider = MagicMock(spec=LLMProvider)
-        provider.get_model.return_value = MagicMock()
-        with patch("app.agents.agent.StrandsAgent"):
-            self._agent = TravelAgent(llm_provider=provider)
+class TestBuildContextMessage:
+    def test_contains_user_message(self) -> None:
+        prefs = UserPreferences()
+        result = _build_context_message("I want to go to Paris", prefs)
+        assert "I want to go to Paris" in result
 
-    # Travel style — positive
-    def test_beach_keywords(self) -> None:
-        for word in ["beach", "sea", "ocean", "coast"]:
-            prefs = self._agent._extract_preferences(f"I love the {word}")
-            assert prefs.travel_style == "beach", f"failed for keyword: {word}"
+    def test_null_fields_shown_as_unknown(self) -> None:
+        prefs = UserPreferences()
+        result = _build_context_message("hi", prefs)
+        assert "Travel style: not yet known" in result
+        assert "Budget: not yet known" in result
 
-    def test_adventure_keywords(self) -> None:
-        for word in ["mountain", "hiking", "trek", "adventure"]:
-            prefs = self._agent._extract_preferences(f"I enjoy {word}")
-            assert prefs.travel_style == "adventure", f"failed for keyword: {word}"
+    def test_known_fields_shown(self) -> None:
+        prefs = UserPreferences(travel_style="beach", budget="luxury")
+        result = _build_context_message("hi", prefs)
+        assert "Travel style: beach" in result
+        assert "Budget: luxury" in result
 
-    def test_cultural_keywords(self) -> None:
-        for word in ["city", "culture", "museum", "history"]:
-            prefs = self._agent._extract_preferences(f"I like {word}")
-            assert prefs.travel_style == "cultural", f"failed for keyword: {word}"
+    def test_list_fields_joined(self) -> None:
+        prefs = UserPreferences(preferred_destinations=["Paris", "Tokyo"])
+        result = _build_context_message("hi", prefs)
+        assert "Paris" in result
+        assert "Tokyo" in result
 
-    # Travel style — negative / edge cases
-    def test_no_style_keyword_omits_travel_style(self) -> None:
-        prefs = self._agent._extract_preferences("I want to travel somewhere nice")
-        assert prefs.travel_style is None
-
-    def test_style_detection_is_case_insensitive(self) -> None:
-        prefs = self._agent._extract_preferences("I love BEACH trips")
-        assert prefs.travel_style == "beach"
-
-    def test_first_matching_style_wins(self) -> None:
-        # "beach" appears before "mountain" in the elif chain
-        prefs = self._agent._extract_preferences("beach and mountain")
-        assert prefs.travel_style == "beach"
-
-    # Budget — positive
-    def test_budget_keywords(self) -> None:
-        for word in ["cheap", "budget", "affordable", "backpacking"]:
-            prefs = self._agent._extract_preferences(f"I need {word} options")
-            assert prefs.budget == "budget", f"failed for keyword: {word}"
-
-    def test_luxury_keywords(self) -> None:
-        for word in ["luxury", "premium", "five star"]:
-            prefs = self._agent._extract_preferences(f"I want {word} hotels")
-            assert prefs.budget == "luxury", f"failed for keyword: {word}"
-
-    def test_moderate_keywords(self) -> None:
-        for word in ["moderate", "mid-range", "comfortable"]:
-            prefs = self._agent._extract_preferences(f"I prefer {word} travel")
-            assert prefs.budget == "moderate", f"failed for keyword: {word}"
-
-    # Budget — negative / edge cases
-    def test_no_budget_keyword_omits_budget(self) -> None:
-        prefs = self._agent._extract_preferences("I want to travel")
-        assert prefs.budget is None
-
-    def test_budget_detection_is_case_insensitive(self) -> None:
-        prefs = self._agent._extract_preferences("I want LUXURY travel")
-        assert prefs.budget == "luxury"
-
-    # Destinations — positive
-    def test_known_destination_detected(self) -> None:
-        prefs = self._agent._extract_preferences("I'd love to visit Paris next year")
-        assert "Paris" in prefs.preferred_destinations
-
-    def test_multiple_destinations_detected(self) -> None:
-        prefs = self._agent._extract_preferences("Tokyo and Bali are my top choices")
-        assert "Tokyo" in prefs.preferred_destinations
-        assert "Bali" in prefs.preferred_destinations
-
-    def test_all_known_destinations_detected(self) -> None:
-        msg = "paris tokyo new york bali rome london barcelona sydney"
-        prefs = self._agent._extract_preferences(msg)
-        assert len(prefs.preferred_destinations) == 8
-
-    # Destinations — negative / edge cases
-    def test_unknown_destination_not_included(self) -> None:
-        prefs = self._agent._extract_preferences("I want to visit Helsinki")
-        assert prefs.preferred_destinations == []
-
-    def test_no_destination_omits_key(self) -> None:
-        prefs = self._agent._extract_preferences("I like travelling")
-        assert prefs.preferred_destinations == []
-
-    def test_destination_title_cased_in_output(self) -> None:
-        prefs = self._agent._extract_preferences("I want to go to paris")
-        assert "Paris" in prefs.preferred_destinations
-
-    def test_empty_message_returns_empty_dict(self) -> None:
-        prefs = self._agent._extract_preferences("")
-        assert prefs == UserPreferences()
+    def test_empty_list_shown_as_unknown(self) -> None:
+        prefs = UserPreferences(preferred_destinations=[])
+        result = _build_context_message("hi", prefs)
+        assert "Preferred destinations: not yet known" in result
 
 
 # ---------------------------------------------------------------------------

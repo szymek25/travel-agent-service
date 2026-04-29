@@ -7,7 +7,7 @@ class UserProfile:
     user_id: str = "default"
     preferred_destinations: List[str] = field(default_factory=list)
     travel_style: Optional[str] = None
-    budget: Optional[str] = None
+    budget: Optional[str | int] = None
     dietary_restrictions: List[str] = field(default_factory=list)
     interests: List[str] = field(default_factory=list)
 
@@ -15,7 +15,7 @@ class UserProfile:
 @dataclass
 class UserPreferences:
     travel_style: Optional[str] = None
-    budget: Optional[str] = None
+    budget: Optional[str | int] = None
     preferred_destinations: List[str] = field(default_factory=list)
     dietary_restrictions: List[str] = field(default_factory=list)
     interests: List[str] = field(default_factory=list)

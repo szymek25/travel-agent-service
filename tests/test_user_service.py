@@ -46,6 +46,13 @@ def test_item_to_profile_full():
     assert profile.interests == ["history", "food"]
 
 
+def test_item_to_profile_numeric_budget():
+    item = {**FULL_ITEM, "budget": {"N": "3000"}}
+    profile = _item_to_profile(item)
+    assert profile.budget == 3000
+    assert isinstance(profile.budget, int)
+
+
 def test_item_to_profile_missing_optional_fields():
     item = {
         "user_id": {"S": "user-2"},
@@ -72,6 +79,12 @@ def test_profile_to_item_full():
     assert item["budget"] == {"S": "medium"}
     assert item["dietary_restrictions"] == {"L": [{"S": "vegetarian"}]}
     assert item["interests"] == {"L": [{"S": "history"}, {"S": "food"}]}
+
+
+def test_profile_to_item_numeric_budget():
+    profile = UserProfile(user_id="user-num", budget=5000)
+    item = _profile_to_item(profile)
+    assert item["budget"] == {"N": "5000"}
 
 
 def test_profile_to_item_omits_none_fields():
@@ -208,6 +221,13 @@ class TestUpdateFromPreferences:
         saved_item = mock_client.put_item.call_args[1]["Item"]
         assert saved_item["travel_style"] == {"S": "adventure"}
         assert saved_item["budget"] == {"S": "luxury"}
+
+    def test_updates_numeric_budget(self, mock_client):
+        mock_client.get_item.return_value = {"Item": FULL_ITEM}
+        UserService().update_from_preferences("user-1", UserPreferences(budget=4000))
+
+        saved_item = mock_client.put_item.call_args[1]["Item"]
+        assert saved_item["budget"] == {"N": "4000"}
 
     def test_merges_dietary_restrictions(self, mock_client):
         mock_client.get_item.return_value = {"Item": FULL_ITEM}

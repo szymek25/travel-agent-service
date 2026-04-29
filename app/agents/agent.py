@@ -2,14 +2,76 @@ from typing import List
 
 from strands import Agent as StrandsAgent
 
+from app.agents.preference_extractor import PreferenceExtractorAgent
 from app.agents.providers import LLMProvider, OllamaProvider
 from app.models.domain import AgentResult, UserPreferences
 
 _SYSTEM_PROMPT = (
     "You are a knowledgeable and enthusiastic travel advisor. "
     "Help users plan amazing trips by providing personalized recommendations "
-    "based on their preferences, budget, and travel style."
+    "based on their preferences, budget, and travel style.\n\n"
+    "Each message begins with a [What I know about you so far] section written in plain language. "
+    "Fields described as 'not yet known' mean the user has not provided that information yet. "
+    "When handling a travel planning request:\n"
+    "- If travel style or budget are not yet known and would meaningfully improve your recommendations, "
+    "ask the user 1-2 focused follow-up questions to gather the missing information.\n"
+    "- You may still provide helpful general advice while asking for clarification.\n"
+    "- Once all key preferences are known, give fully tailored, specific recommendations."
 )
+
+
+def _build_context_message(message: str, prefs: UserPreferences) -> str:
+    """Prepend a natural-language preferences summary to *message* for the main agent."""
+
+    if prefs.travel_style:
+        travel_style_line = f"- Travel style: {prefs.travel_style}."
+    else:
+        travel_style_line = (
+            "- Travel style: not yet known "
+            "(e.g. beach, city break, cultural, adventure, luxury)."
+        )
+
+    if prefs.budget is not None:
+        budget_line = f"- Budget: {prefs.budget}."
+    else:
+        budget_line = (
+            "- Budget: not yet known "
+            "(e.g. budget-friendly, mid-range, luxury, or a specific amount like $2000)."
+        )
+
+    if prefs.preferred_destinations:
+        destinations_line = f"- Preferred destinations: {', '.join(str(d) for d in prefs.preferred_destinations)}."
+    else:
+        destinations_line = (
+            "- Preferred destinations: not yet known "
+            "(e.g. Europe, tropical islands, Japan)."
+        )
+
+    if prefs.dietary_restrictions:
+        dietary_line = f"- Dietary restrictions: {', '.join(str(r) for r in prefs.dietary_restrictions)}."
+    else:
+        dietary_line = "- Dietary restrictions: none mentioned."
+
+    if prefs.interests:
+        interests_line = f"- Interests: {', '.join(str(i) for i in prefs.interests)}."
+    else:
+        interests_line = (
+            "- Interests: not yet known "
+            "(e.g. hiking, museums, food tours, diving)."
+        )
+
+    lines = [
+        "[What I know about you so far]",
+        travel_style_line,
+        budget_line,
+        destinations_line,
+        dietary_line,
+        interests_line,
+        "",
+        "[User message]",
+        message,
+    ]
+    return "\n".join(lines)
 
 
 class TravelAgent:
@@ -21,56 +83,28 @@ class TravelAgent:
             system_prompt=_SYSTEM_PROMPT,
             state={"user_preferences": {}},
         )
+        self._extractor = PreferenceExtractorAgent(llm_provider=llm_provider)
 
     def run(self, message: str, user_preferences: UserPreferences | None = None) -> AgentResult:
         current_prefs = user_preferences or UserPreferences()
 
-        # Seed agent state with preferences loaded from persistent storage
-        self._agent.state.set("user_preferences", current_prefs.to_dict())
-
-        result = self._agent(message)
-
         # Extract preferences from the current message and merge with existing
-        extracted = self._extract_preferences(message)
+        extracted = self._extractor.extract(message)
         merged = current_prefs.merge(extracted)
 
-        # Persist merged preferences back into agent state
+        # Seed agent state with merged preferences
         self._agent.state.set("user_preferences", merged.to_dict())
 
-        recommendations_preview = self._get_recommendations_preview(extracted)
+        # Build context-enriched message so the main agent sees current preferences
+        enriched_message = _build_context_message(message, merged)
+        result = self._agent(enriched_message)
+
+        recommendations_preview = self._get_recommendations_preview(merged)
         return AgentResult(
             reply=str(result),
             extracted_preferences=merged,
             recommendations_preview=recommendations_preview,
         )
-
-    def _extract_preferences(self, message: str) -> UserPreferences:
-        preferences = UserPreferences()
-        message_lower = message.lower()
-
-        if any(word in message_lower for word in ["beach", "sea", "ocean", "coast"]):
-            preferences.travel_style = "beach"
-        elif any(word in message_lower for word in ["mountain", "hiking", "trek", "adventure"]):
-            preferences.travel_style = "adventure"
-        elif any(word in message_lower for word in ["city", "culture", "museum", "history"]):
-            preferences.travel_style = "cultural"
-
-        if any(word in message_lower for word in ["cheap", "budget", "affordable", "backpacking"]):
-            preferences.budget = "budget"
-        elif any(word in message_lower for word in ["luxury", "premium", "first class", "five star"]):
-            preferences.budget = "luxury"
-        elif any(word in message_lower for word in ["moderate", "mid-range", "comfortable"]):
-            preferences.budget = "moderate"
-
-        destinations = []
-        known_destinations = ["paris", "tokyo", "new york", "bali", "rome", "london", "barcelona", "sydney"]
-        for dest in known_destinations:
-            if dest in message_lower:
-                destinations.append(dest.title())
-        if destinations:
-            preferences.preferred_destinations = destinations
-
-        return preferences
 
     def _get_recommendations_preview(self, preferences: UserPreferences) -> List[dict]:
         travel_style = preferences.travel_style or ""

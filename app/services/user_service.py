@@ -6,11 +6,16 @@ from app.core.config import settings
 
 
 def _item_to_profile(item: dict) -> UserProfile:
+    budget_item = item.get("budget", {})
+    if "N" in budget_item:
+        budget: str | int | None = int(budget_item["N"])
+    else:
+        budget = budget_item.get("S")
     return UserProfile(
         user_id=item["user_id"]["S"],
         preferred_destinations=[v["S"] for v in item.get("preferred_destinations", {}).get("L", [])],
         travel_style=item.get("travel_style", {}).get("S"),
-        budget=item.get("budget", {}).get("S"),
+        budget=budget,
         dietary_restrictions=[v["S"] for v in item.get("dietary_restrictions", {}).get("L", [])],
         interests=[v["S"] for v in item.get("interests", {}).get("L", [])],
     )
@@ -26,7 +31,10 @@ def _profile_to_item(profile: UserProfile) -> dict:
     if profile.travel_style is not None:
         item["travel_style"] = {"S": profile.travel_style}
     if profile.budget is not None:
-        item["budget"] = {"S": profile.budget}
+        if isinstance(profile.budget, int):
+            item["budget"] = {"N": str(profile.budget)}
+        else:
+            item["budget"] = {"S": profile.budget}
     return item
 
 

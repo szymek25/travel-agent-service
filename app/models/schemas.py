@@ -9,7 +9,7 @@ class ChatRequest(BaseModel):
 
 class UserPreferencesSchema(BaseModel):
     travel_style: Optional[str] = None
-    budget: Optional[str] = None
+    budget: Optional[str | int] = None
     preferred_destinations: List[str] = []
     dietary_restrictions: List[str] = []
     interests: List[str] = []
@@ -29,7 +29,7 @@ class ChatResponse(BaseModel):
 class TripRecommendationRequest(BaseModel):
     destination: Optional[str] = None
     travel_style: Optional[str] = None
-    budget: Optional[str] = None
+    budget: Optional[str | int] = None
 
 
 class TripRecommendation(BaseModel):
@@ -47,7 +47,7 @@ class TripRecommendationResponse(BaseModel):
 class UserProfileRequest(BaseModel):
     preferred_destinations: Optional[List[str]] = None
     travel_style: Optional[str] = None
-    budget: Optional[str] = None
+    budget: Optional[str | int] = None
     dietary_restrictions: Optional[List[str]] = None
     interests: Optional[List[str]] = None
 
@@ -56,6 +56,6 @@ class UserProfileResponse(BaseModel):
     user_id: str
     preferred_destinations: List[str]
     travel_style: Optional[str]
-    budget: Optional[str]
+    budget: Optional[str | int]
     dietary_restrictions: List[str]
     interests: List[str]
