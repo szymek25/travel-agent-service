@@ -83,7 +83,11 @@ Interactive docs are available at [http://localhost:8000/docs](http://localhost:
 
 ### Prerequisites
 
-- Python 3.12+
+- [pyenv](https://github.com/pyenv/pyenv) with Python 3.12.13
+
+```bash
+pyenv install 3.12.13
+```
 
 ### Steps
 
@@ -92,17 +96,20 @@ Interactive docs are available at [http://localhost:8000/docs](http://localhost:
 git clone https://github.com/szymek25/travel-agent-service.git
 cd travel-agent-service
 
-# 2. Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate      # On Windows: .venv\Scripts\activate
+# 2. Pin the Python version for this project
+pyenv local 3.12.13
 
-# 3. Install dependencies
+# 3. Create a virtual environment using the pinned Python
+python -m venv .venv
+source .venv/bin/activate
+
+# 4. Install dependencies
 pip install -r requirements.txt
 
-# 4. Copy and edit the environment file
+# 5. Copy and edit the environment file
 cp .env.example .env
 
-# 5. Start the server
+# 6. Start the server
 uvicorn app.main:app --reload
 
 # The API is now available at http://localhost:8000
@@ -111,7 +118,7 @@ uvicorn app.main:app --reload
 ### Run Tests
 
 ```bash
-pytest tests/ -v
+.venv/bin/pytest tests/ -v
 ```
 
 ---
