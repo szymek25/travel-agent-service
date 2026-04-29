@@ -4,7 +4,7 @@ from typing import List, Optional
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 
 class RecommendationPreview(BaseModel):

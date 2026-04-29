@@ -10,7 +10,7 @@ class ChatService:
 
     def handle_message(self, request: ChatRequest) -> ChatResponse:
         result = self._agent.run(message=request.message)
-        user_id = request.session_id or "default"
+        user_id = request.user_id or "default"
         self._user_service.update_from_preferences(user_id, result.extracted_preferences)
         recommendations_preview = [
             RecommendationPreview(**item) for item in result.recommendations_preview
