@@ -2,6 +2,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from app.main import app
+from app.core.dependencies import get_chat_service
+from app.models.schemas import ChatResponse, RecommendationPreview, UserPreferencesSchema
 
 client = TestClient(app)
 
@@ -32,7 +34,24 @@ def test_health_check() -> None:
     assert data["status"] == "ok"
 
 
-def test_chat_endpoint_basic() -> None:
+def _make_chat_response(travel_style: str | None = None, budget: str | None = None) -> ChatResponse:
+    return ChatResponse(
+        reply="Here are some travel recommendations!",
+        extracted_preferences=UserPreferencesSchema(travel_style=travel_style, budget=budget),
+        recommendations_preview=[RecommendationPreview(destination="Bali", description="Beautiful island")],
+    )
+
+
+@pytest.fixture
+def mock_chat_service():
+    mock_service = MagicMock()
+    app.dependency_overrides[get_chat_service] = lambda: mock_service
+    yield mock_service
+    app.dependency_overrides.pop(get_chat_service, None)
+
+
+def test_chat_endpoint_basic(mock_chat_service) -> None:
+    mock_chat_service.handle_message.return_value = _make_chat_response()
     response = client.post("/chat", json={"message": "I want to visit a beach destination on a budget."})
     assert response.status_code == 200
     data = response.json()
@@ -42,14 +61,16 @@ def test_chat_endpoint_basic() -> None:
     assert isinstance(data["recommendations_preview"], list)
 
 
-def test_chat_endpoint_extracts_travel_style() -> None:
+def test_chat_endpoint_extracts_travel_style(mock_chat_service) -> None:
+    mock_chat_service.handle_message.return_value = _make_chat_response(travel_style="adventure")
     response = client.post("/chat", json={"message": "I love hiking and mountain adventures."})
     assert response.status_code == 200
     data = response.json()
     assert data["extracted_preferences"].get("travel_style") == "adventure"
 
 
-def test_chat_endpoint_extracts_budget() -> None:
+def test_chat_endpoint_extracts_budget(mock_chat_service) -> None:
+    mock_chat_service.handle_message.return_value = _make_chat_response(budget="luxury")
     response = client.post("/chat", json={"message": "I want something luxury and premium."})
     assert response.status_code == 200
     data = response.json()
