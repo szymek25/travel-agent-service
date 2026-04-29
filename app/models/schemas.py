@@ -7,6 +7,14 @@ class ChatRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class UserPreferencesSchema(BaseModel):
+    travel_style: Optional[str] = None
+    budget: Optional[str] = None
+    preferred_destinations: List[str] = []
+    dietary_restrictions: List[str] = []
+    interests: List[str] = []
+
+
 class RecommendationPreview(BaseModel):
     destination: str
     description: str
@@ -14,7 +22,7 @@ class RecommendationPreview(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    extracted_preferences: dict
+    extracted_preferences: UserPreferencesSchema
     recommendations_preview: List[RecommendationPreview]
 
 

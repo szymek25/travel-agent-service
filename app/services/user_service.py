@@ -1,5 +1,5 @@
 from fastapi import HTTPException
-from app.models.domain import UserProfile
+from app.models.domain import UserProfile, UserPreferences
 from app.models.schemas import UserProfileRequest, UserProfileResponse
 from app.db.dynamodb import get_dynamodb_client
 from app.core.config import settings
@@ -75,15 +75,34 @@ class UserService:
         self._save(profile)
         return self.get_profile(user_id)
 
-    def update_from_preferences(self, user_id: str, preferences: dict) -> None:
+    def get_preferences(self, user_id: str) -> UserPreferences:
+        profile = self._fetch(user_id)
+        if profile is None:
+            return UserPreferences()
+        return UserPreferences(
+            travel_style=profile.travel_style,
+            budget=profile.budget,
+            preferred_destinations=profile.preferred_destinations,
+            dietary_restrictions=profile.dietary_restrictions,
+            interests=profile.interests,
+        )
+
+    def update_from_preferences(self, user_id: str, preferences: UserPreferences) -> None:
         profile = self._fetch(user_id) or UserProfile(user_id=user_id)
-        if "travel_style" in preferences:
-            profile.travel_style = preferences["travel_style"]
-        if "budget" in preferences:
-            profile.budget = preferences["budget"]
-        if "preferred_destinations" in preferences:
+        if preferences.travel_style is not None:
+            profile.travel_style = preferences.travel_style
+        if preferences.budget is not None:
+            profile.budget = preferences.budget
+        if preferences.preferred_destinations:
             existing = set(profile.preferred_destinations)
-            for dest in preferences["preferred_destinations"]:
-                existing.add(dest)
+            existing.update(preferences.preferred_destinations)
             profile.preferred_destinations = list(existing)
+        if preferences.dietary_restrictions:
+            existing_dr = set(profile.dietary_restrictions)
+            existing_dr.update(preferences.dietary_restrictions)
+            profile.dietary_restrictions = list(existing_dr)
+        if preferences.interests:
+            existing_int = set(profile.interests)
+            existing_int.update(preferences.interests)
+            profile.interests = list(existing_int)
         self._save(profile)

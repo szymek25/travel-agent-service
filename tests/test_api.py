@@ -1,8 +1,28 @@
 import pytest
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from app.main import app
 
 client = TestClient(app)
+
+FULL_ITEM = {
+    "user_id": {"S": "user-123"},
+    "preferred_destinations": {"L": [{"S": "Japan"}, {"S": "Thailand"}]},
+    "travel_style": {"S": "cultural"},
+    "budget": {"S": "moderate"},
+    "dietary_restrictions": {"L": [{"S": "vegetarian"}]},
+    "interests": {"L": [{"S": "history"}, {"S": "food"}]},
+}
+
+
+@pytest.fixture
+def mock_dynamodb():
+    with patch("app.services.user_service.get_dynamodb_client") as mock_factory:
+        client_mock = MagicMock()
+        client_mock.get_item.return_value = {}
+        client_mock.put_item.return_value = {}
+        mock_factory.return_value = client_mock
+        yield client_mock
 
 
 def test_health_check() -> None:
@@ -52,16 +72,31 @@ def test_recommend_trip_filter_by_style() -> None:
         assert rec["travel_style"] == "beach"
 
 
-def test_get_user_profile_default() -> None:
-    response = client.get("/user-profile")
+def test_get_user_profile_default(mock_dynamodb) -> None:
+    mock_dynamodb.get_item.return_value = {"Item": FULL_ITEM}
+    response = client.get("/user-profile/user-123")
     assert response.status_code == 200
     data = response.json()
     assert "preferred_destinations" in data
     assert "travel_style" in data
     assert "budget" in data
+    assert "dietary_restrictions" in data
+    assert "interests" in data
 
 
-def test_update_user_profile() -> None:
+def test_update_user_profile(mock_dynamodb) -> None:
+    updated_item = {
+        "user_id": {"S": "user-123"},
+        "preferred_destinations": {"L": [{"S": "Japan"}, {"S": "Thailand"}]},
+        "travel_style": {"S": "cultural"},
+        "budget": {"S": "moderate"},
+        "dietary_restrictions": {"L": [{"S": "vegetarian"}]},
+        "interests": {"L": [{"S": "history"}, {"S": "food"}]},
+    }
+    mock_dynamodb.get_item.side_effect = [
+        {},                        # _fetch inside update_or_create_profile
+        {"Item": updated_item},    # _fetch inside get_profile after save
+    ]
     payload = {
         "preferred_destinations": ["Japan", "Thailand"],
         "travel_style": "cultural",
@@ -69,7 +104,7 @@ def test_update_user_profile() -> None:
         "dietary_restrictions": ["vegetarian"],
         "interests": ["history", "food"],
     }
-    response = client.post("/user-profile", json=payload)
+    response = client.post("/user-profile/user-123", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["travel_style"] == "cultural"

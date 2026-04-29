@@ -3,7 +3,7 @@ from typing import List
 from strands import Agent as StrandsAgent
 
 from app.agents.providers import LLMProvider, OllamaProvider
-from app.models.domain import AgentResult
+from app.models.domain import AgentResult, UserPreferences
 
 _SYSTEM_PROMPT = (
     "You are a knowledgeable and enthusiastic travel advisor. "
@@ -19,35 +19,48 @@ class TravelAgent:
         self._agent = StrandsAgent(
             model=llm_provider.get_model(),
             system_prompt=_SYSTEM_PROMPT,
+            state={"user_preferences": {}},
         )
 
-    def run(self, message: str) -> AgentResult:
+    def run(self, message: str, user_preferences: UserPreferences | None = None) -> AgentResult:
+        current_prefs = user_preferences or UserPreferences()
+
+        # Seed agent state with preferences loaded from persistent storage
+        self._agent.state.set("user_preferences", current_prefs.to_dict())
+
         result = self._agent(message)
-        extracted_preferences = self._extract_preferences(message)
-        recommendations_preview = self._get_recommendations_preview(extracted_preferences)
+
+        # Extract preferences from the current message and merge with existing
+        extracted = self._extract_preferences(message)
+        merged = current_prefs.merge(extracted)
+
+        # Persist merged preferences back into agent state
+        self._agent.state.set("user_preferences", merged.to_dict())
+
+        recommendations_preview = self._get_recommendations_preview(extracted)
         return AgentResult(
             reply=str(result),
-            extracted_preferences=extracted_preferences,
+            extracted_preferences=merged,
             recommendations_preview=recommendations_preview,
         )
 
-    def _extract_preferences(self, message: str) -> dict:
-        preferences: dict = {}
+    def _extract_preferences(self, message: str) -> UserPreferences:
+        preferences = UserPreferences()
         message_lower = message.lower()
 
         if any(word in message_lower for word in ["beach", "sea", "ocean", "coast"]):
-            preferences["travel_style"] = "beach"
+            preferences.travel_style = "beach"
         elif any(word in message_lower for word in ["mountain", "hiking", "trek", "adventure"]):
-            preferences["travel_style"] = "adventure"
+            preferences.travel_style = "adventure"
         elif any(word in message_lower for word in ["city", "culture", "museum", "history"]):
-            preferences["travel_style"] = "cultural"
+            preferences.travel_style = "cultural"
 
         if any(word in message_lower for word in ["cheap", "budget", "affordable", "backpacking"]):
-            preferences["budget"] = "budget"
+            preferences.budget = "budget"
         elif any(word in message_lower for word in ["luxury", "premium", "first class", "five star"]):
-            preferences["budget"] = "luxury"
+            preferences.budget = "luxury"
         elif any(word in message_lower for word in ["moderate", "mid-range", "comfortable"]):
-            preferences["budget"] = "moderate"
+            preferences.budget = "moderate"
 
         destinations = []
         known_destinations = ["paris", "tokyo", "new york", "bali", "rome", "london", "barcelona", "sydney"]
@@ -55,12 +68,12 @@ class TravelAgent:
             if dest in message_lower:
                 destinations.append(dest.title())
         if destinations:
-            preferences["preferred_destinations"] = destinations
+            preferences.preferred_destinations = destinations
 
         return preferences
 
-    def _get_recommendations_preview(self, preferences: dict) -> List[dict]:
-        travel_style = preferences.get("travel_style", "")
+    def _get_recommendations_preview(self, preferences: UserPreferences) -> List[dict]:
+        travel_style = preferences.travel_style or ""
         style_map = {
             "beach": [
                 {"destination": "Bali, Indonesia", "description": "Stunning beaches and vibrant culture."},

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.models.domain import UserProfile
+from app.models.domain import UserProfile, UserPreferences
 from app.models.schemas import UserProfileRequest
 from app.services.user_service import UserService, _item_to_profile, _profile_to_item
 
@@ -156,10 +156,34 @@ class TestUpdateOrCreateProfile:
         assert saved_item["travel_style"] == {"S": "adventure"}
 
 
+class TestGetPreferences:
+    def test_returns_empty_preferences_when_user_not_found(self, mock_client):
+        mock_client.get_item.return_value = {}
+        prefs = UserService().get_preferences("unknown")
+        assert prefs == UserPreferences()
+
+    def test_returns_full_preferences_when_profile_exists(self, mock_client):
+        mock_client.get_item.return_value = {"Item": FULL_ITEM}
+        prefs = UserService().get_preferences("user-1")
+        assert prefs.travel_style == "cultural"
+        assert prefs.budget == "medium"
+        assert prefs.preferred_destinations == ["Italy", "Japan"]
+        assert prefs.dietary_restrictions == ["vegetarian"]
+        assert prefs.interests == ["history", "food"]
+
+    def test_returns_partial_preferences_for_partial_profile(self, mock_client):
+        item = {"user_id": {"S": "user-2"}, "travel_style": {"S": "beach"}}
+        mock_client.get_item.return_value = {"Item": item}
+        prefs = UserService().get_preferences("user-2")
+        assert prefs.travel_style == "beach"
+        assert prefs.budget is None
+        assert prefs.preferred_destinations == []
+
+
 class TestUpdateFromPreferences:
     def test_merges_destinations_with_existing(self, mock_client):
         mock_client.get_item.return_value = {"Item": FULL_ITEM}
-        UserService().update_from_preferences("user-1", {"preferred_destinations": ["Portugal"]})
+        UserService().update_from_preferences("user-1", UserPreferences(preferred_destinations=["Portugal"]))
 
         saved_item = mock_client.put_item.call_args[1]["Item"]
         saved_destinations = {v["S"] for v in saved_item["preferred_destinations"]["L"]}
@@ -169,7 +193,7 @@ class TestUpdateFromPreferences:
 
     def test_creates_profile_when_not_found(self, mock_client):
         mock_client.get_item.return_value = {}
-        UserService().update_from_preferences("new-user", {"travel_style": "beach", "budget": "low"})
+        UserService().update_from_preferences("new-user", UserPreferences(travel_style="beach", budget="low"))
 
         assert mock_client.put_item.called
         saved_item = mock_client.put_item.call_args[1]["Item"]
@@ -179,8 +203,27 @@ class TestUpdateFromPreferences:
 
     def test_updates_travel_style_and_budget(self, mock_client):
         mock_client.get_item.return_value = {"Item": FULL_ITEM}
-        UserService().update_from_preferences("user-1", {"travel_style": "adventure", "budget": "luxury"})
+        UserService().update_from_preferences("user-1", UserPreferences(travel_style="adventure", budget="luxury"))
 
         saved_item = mock_client.put_item.call_args[1]["Item"]
         assert saved_item["travel_style"] == {"S": "adventure"}
         assert saved_item["budget"] == {"S": "luxury"}
+
+    def test_merges_dietary_restrictions(self, mock_client):
+        mock_client.get_item.return_value = {"Item": FULL_ITEM}
+        UserService().update_from_preferences("user-1", UserPreferences(dietary_restrictions=["vegan"]))
+
+        saved_item = mock_client.put_item.call_args[1]["Item"]
+        saved_dr = {v["S"] for v in saved_item["dietary_restrictions"]["L"]}
+        assert "vegetarian" in saved_dr
+        assert "vegan" in saved_dr
+
+    def test_merges_interests(self, mock_client):
+        mock_client.get_item.return_value = {"Item": FULL_ITEM}
+        UserService().update_from_preferences("user-1", UserPreferences(interests=["art"]))
+
+        saved_item = mock_client.put_item.call_args[1]["Item"]
+        saved_interests = {v["S"] for v in saved_item["interests"]["L"]}
+        assert "history" in saved_interests
+        assert "food" in saved_interests
+        assert "art" in saved_interests

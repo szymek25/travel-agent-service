@@ -5,7 +5,7 @@ import pytest
 
 from app.agents.agent import TravelAgent, _SYSTEM_PROMPT
 from app.agents.providers import BedrockProvider, LLMProvider, OllamaProvider
-from app.models.domain import AgentResult
+from app.models.domain import AgentResult, UserPreferences
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ class TestTravelAgentConstruction:
 
         with patch("app.agents.agent.StrandsAgent") as MockStrandsAgent:
             TravelAgent(llm_provider=provider)
-            MockStrandsAgent.assert_called_once_with(model=mock_model, system_prompt=_SYSTEM_PROMPT)
+            MockStrandsAgent.assert_called_once_with(model=mock_model, system_prompt=_SYSTEM_PROMPT, state={"user_preferences": {}})
 
     def test_defaults_to_ollama_provider_when_none_given(self) -> None:
         mock_model = MagicMock()
@@ -119,8 +119,8 @@ class TestTravelAgentRun:
     def test_result_contains_extracted_preferences(self) -> None:
         agent = self._make_agent()
         result = agent.run("I want a luxury beach holiday")
-        assert result.extracted_preferences.get("travel_style") == "beach"
-        assert result.extracted_preferences.get("budget") == "luxury"
+        assert result.extracted_preferences.travel_style == "beach"
+        assert result.extracted_preferences.budget == "luxury"
 
     def test_result_contains_recommendations_preview(self) -> None:
         agent = self._make_agent()
@@ -137,7 +137,7 @@ class TestTravelAgentRun:
     def test_empty_message_has_no_extracted_preferences(self) -> None:
         agent = self._make_agent()
         result = agent.run("")
-        assert result.extracted_preferences == {}
+        assert result.extracted_preferences == UserPreferences()
 
 
 # ---------------------------------------------------------------------------
@@ -157,88 +157,88 @@ class TestExtractPreferences:
     def test_beach_keywords(self) -> None:
         for word in ["beach", "sea", "ocean", "coast"]:
             prefs = self._agent._extract_preferences(f"I love the {word}")
-            assert prefs["travel_style"] == "beach", f"failed for keyword: {word}"
+            assert prefs.travel_style == "beach", f"failed for keyword: {word}"
 
     def test_adventure_keywords(self) -> None:
         for word in ["mountain", "hiking", "trek", "adventure"]:
             prefs = self._agent._extract_preferences(f"I enjoy {word}")
-            assert prefs["travel_style"] == "adventure", f"failed for keyword: {word}"
+            assert prefs.travel_style == "adventure", f"failed for keyword: {word}"
 
     def test_cultural_keywords(self) -> None:
         for word in ["city", "culture", "museum", "history"]:
             prefs = self._agent._extract_preferences(f"I like {word}")
-            assert prefs["travel_style"] == "cultural", f"failed for keyword: {word}"
+            assert prefs.travel_style == "cultural", f"failed for keyword: {word}"
 
     # Travel style — negative / edge cases
     def test_no_style_keyword_omits_travel_style(self) -> None:
         prefs = self._agent._extract_preferences("I want to travel somewhere nice")
-        assert "travel_style" not in prefs
+        assert prefs.travel_style is None
 
     def test_style_detection_is_case_insensitive(self) -> None:
         prefs = self._agent._extract_preferences("I love BEACH trips")
-        assert prefs["travel_style"] == "beach"
+        assert prefs.travel_style == "beach"
 
     def test_first_matching_style_wins(self) -> None:
         # "beach" appears before "mountain" in the elif chain
         prefs = self._agent._extract_preferences("beach and mountain")
-        assert prefs["travel_style"] == "beach"
+        assert prefs.travel_style == "beach"
 
     # Budget — positive
     def test_budget_keywords(self) -> None:
         for word in ["cheap", "budget", "affordable", "backpacking"]:
             prefs = self._agent._extract_preferences(f"I need {word} options")
-            assert prefs["budget"] == "budget", f"failed for keyword: {word}"
+            assert prefs.budget == "budget", f"failed for keyword: {word}"
 
     def test_luxury_keywords(self) -> None:
         for word in ["luxury", "premium", "five star"]:
             prefs = self._agent._extract_preferences(f"I want {word} hotels")
-            assert prefs["budget"] == "luxury", f"failed for keyword: {word}"
+            assert prefs.budget == "luxury", f"failed for keyword: {word}"
 
     def test_moderate_keywords(self) -> None:
         for word in ["moderate", "mid-range", "comfortable"]:
             prefs = self._agent._extract_preferences(f"I prefer {word} travel")
-            assert prefs["budget"] == "moderate", f"failed for keyword: {word}"
+            assert prefs.budget == "moderate", f"failed for keyword: {word}"
 
     # Budget — negative / edge cases
     def test_no_budget_keyword_omits_budget(self) -> None:
         prefs = self._agent._extract_preferences("I want to travel")
-        assert "budget" not in prefs
+        assert prefs.budget is None
 
     def test_budget_detection_is_case_insensitive(self) -> None:
         prefs = self._agent._extract_preferences("I want LUXURY travel")
-        assert prefs["budget"] == "luxury"
+        assert prefs.budget == "luxury"
 
     # Destinations — positive
     def test_known_destination_detected(self) -> None:
         prefs = self._agent._extract_preferences("I'd love to visit Paris next year")
-        assert "Paris" in prefs["preferred_destinations"]
+        assert "Paris" in prefs.preferred_destinations
 
     def test_multiple_destinations_detected(self) -> None:
         prefs = self._agent._extract_preferences("Tokyo and Bali are my top choices")
-        assert "Tokyo" in prefs["preferred_destinations"]
-        assert "Bali" in prefs["preferred_destinations"]
+        assert "Tokyo" in prefs.preferred_destinations
+        assert "Bali" in prefs.preferred_destinations
 
     def test_all_known_destinations_detected(self) -> None:
         msg = "paris tokyo new york bali rome london barcelona sydney"
         prefs = self._agent._extract_preferences(msg)
-        assert len(prefs["preferred_destinations"]) == 8
+        assert len(prefs.preferred_destinations) == 8
 
     # Destinations — negative / edge cases
     def test_unknown_destination_not_included(self) -> None:
         prefs = self._agent._extract_preferences("I want to visit Helsinki")
-        assert "preferred_destinations" not in prefs
+        assert prefs.preferred_destinations == []
 
     def test_no_destination_omits_key(self) -> None:
         prefs = self._agent._extract_preferences("I like travelling")
-        assert "preferred_destinations" not in prefs
+        assert prefs.preferred_destinations == []
 
     def test_destination_title_cased_in_output(self) -> None:
         prefs = self._agent._extract_preferences("I want to go to paris")
-        assert "Paris" in prefs["preferred_destinations"]
+        assert "Paris" in prefs.preferred_destinations
 
     def test_empty_message_returns_empty_dict(self) -> None:
         prefs = self._agent._extract_preferences("")
-        assert prefs == {}
+        assert prefs == UserPreferences()
 
 
 # ---------------------------------------------------------------------------
@@ -255,39 +255,39 @@ class TestGetRecommendationsPreview:
             self._agent = TravelAgent(llm_provider=provider)
 
     def test_beach_style_returns_beach_destinations(self) -> None:
-        recs = self._agent._get_recommendations_preview({"travel_style": "beach"})
+        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="beach"))
         destinations = [r["destination"] for r in recs]
         assert any("Bali" in d or "Maldives" in d for d in destinations)
 
     def test_adventure_style_returns_adventure_destinations(self) -> None:
-        recs = self._agent._get_recommendations_preview({"travel_style": "adventure"})
+        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="adventure"))
         destinations = [r["destination"] for r in recs]
         assert any("Patagonia" in d or "Nepal" in d for d in destinations)
 
     def test_cultural_style_returns_cultural_destinations(self) -> None:
-        recs = self._agent._get_recommendations_preview({"travel_style": "cultural"})
+        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="cultural"))
         destinations = [r["destination"] for r in recs]
         assert any("Kyoto" in d or "Rome" in d for d in destinations)
 
     def test_unknown_style_returns_default_recommendations(self) -> None:
-        recs = self._agent._get_recommendations_preview({"travel_style": "unknown_style"})
+        recs = self._agent._get_recommendations_preview(UserPreferences(travel_style="unknown_style"))
         assert isinstance(recs, list)
         assert len(recs) > 0
 
     def test_missing_travel_style_returns_default_recommendations(self) -> None:
-        recs = self._agent._get_recommendations_preview({})
+        recs = self._agent._get_recommendations_preview(UserPreferences())
         assert isinstance(recs, list)
         assert len(recs) > 0
 
     def test_default_recommendations_include_paris_and_tokyo(self) -> None:
-        recs = self._agent._get_recommendations_preview({})
+        recs = self._agent._get_recommendations_preview(UserPreferences())
         destinations = [r["destination"] for r in recs]
         assert any("Paris" in d for d in destinations)
         assert any("Tokyo" in d for d in destinations)
 
     def test_each_recommendation_has_destination_and_description(self) -> None:
         for style in ["beach", "adventure", "cultural", ""]:
-            recs = self._agent._get_recommendations_preview({"travel_style": style})
+            recs = self._agent._get_recommendations_preview(UserPreferences(travel_style=style or None))
             for rec in recs:
                 assert "destination" in rec
                 assert "description" in rec
@@ -295,7 +295,7 @@ class TestGetRecommendationsPreview:
                 assert isinstance(rec["description"], str)
 
     def test_empty_preferences_returns_list(self) -> None:
-        recs = self._agent._get_recommendations_preview({})
+        recs = self._agent._get_recommendations_preview(UserPreferences())
         assert isinstance(recs, list)
 
 
