@@ -1,22 +1,32 @@
 from typing import List
+
+from strands import Agent as StrandsAgent
+
+from app.agents.providers import LLMProvider, OllamaProvider
 from app.models.domain import AgentResult
+
+_SYSTEM_PROMPT = (
+    "You are a knowledgeable and enthusiastic travel advisor. "
+    "Help users plan amazing trips by providing personalized recommendations "
+    "based on their preferences, budget, and travel style."
+)
 
 
 class TravelAgent:
-    """
-    Placeholder TravelAgent class for future LLM integration.
-    Currently returns mock responses, extracted preferences, and recommendations.
-    """
+    def __init__(self, llm_provider: LLMProvider | None = None) -> None:
+        if llm_provider is None:
+            llm_provider = OllamaProvider()
+        self._agent = StrandsAgent(
+            model=llm_provider.get_model(),
+            system_prompt=_SYSTEM_PROMPT,
+        )
 
     def run(self, message: str) -> AgentResult:
-        reply = (
-            f"I understand you're looking for travel advice. "
-            f"Based on your message, I can help you plan an amazing trip!"
-        )
+        result = self._agent(message)
         extracted_preferences = self._extract_preferences(message)
         recommendations_preview = self._get_recommendations_preview(extracted_preferences)
         return AgentResult(
-            reply=reply,
+            reply=str(result),
             extracted_preferences=extracted_preferences,
             recommendations_preview=recommendations_preview,
         )

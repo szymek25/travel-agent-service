@@ -30,7 +30,8 @@ travel-agent-service/
 │   │   ├── config.py               # Pydantic settings (reads from .env)
 │   │   └── dependencies.py         # FastAPI dependency injection helpers
 │   ├── agents/
-│   │   └── agent.py                # TravelAgent — placeholder for LLM integration
+│   │   ├── agent.py                # TravelAgent — Strands-backed LLM agent
+│   │   └── providers.py            # LLMProvider abstraction (OllamaProvider, BedrockProvider)
 │   ├── rag/
 │   │   ├── embeddings.py           # Placeholder embedding service
 │   │   └── retriever.py            # Placeholder document retriever
@@ -133,5 +134,13 @@ Copy `.env.example` to `.env` and adjust values as needed.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ENV` | `development` | Runtime environment (`development`, `staging`, `production`) |
-| `LLM_PROVIDER` | `openai` | LLM backend to use (future integration) |
+| `LLM_PROVIDER` | `ollama` | LLM backend to use (`ollama` or `bedrock`) |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server address (used when `LLM_PROVIDER=ollama`) |
+| `OLLAMA_MODEL_ID` | `llama3.1` | Ollama model name (used when `LLM_PROVIDER=ollama`) |
+| `BEDROCK_MODEL_ID` | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Bedrock model ID (used when `LLM_PROVIDER=bedrock`) |
 | `VECTOR_STORE` | `chroma` | Vector store for RAG (future integration) |
+| `DYNAMODB_ENDPOINT_URL` | `http://localhost:8001` | DynamoDB endpoint (use local URL for dev, omit for AWS) |
+| `DYNAMODB_TABLE_USER_PROFILES` | `UserProfiles` | DynamoDB table name for user profiles |
+| `AWS_REGION` | `us-east-1` | AWS region |
+| `AWS_ACCESS_KEY_ID` | `dummy` | AWS access key (`dummy` is fine for local DynamoDB) |
+| `AWS_SECRET_ACCESS_KEY` | `dummy` | AWS secret key (`dummy` is fine for local DynamoDB) |
