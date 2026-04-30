@@ -13,13 +13,12 @@ post {
 body:json {
   {
     "message": "I want to travel somewhere warm in Europe",
-    "user_id": "{{user-id}}",
-    "session_id" "{{session-id}}"
+    "user_id": "{{userId}}",
+    "session_id": "{{session-id}}"
   }
 }
 
 vars:pre-request {
-  user-id: user-12345678
   session-id: ""
 }
 

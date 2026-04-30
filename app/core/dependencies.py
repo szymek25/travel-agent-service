@@ -1,6 +1,7 @@
 from app.services.user_service import UserService
 from app.services.chat_service import ChatService
 from app.services.recommendation_service import RecommendationService
+from app.agents.recommendations_agent import RecommendationsAgent
 
 
 def get_user_service() -> UserService:
@@ -12,4 +13,7 @@ def get_chat_service() -> ChatService:
 
 
 def get_recommendation_service() -> RecommendationService:
-    return RecommendationService()
+    return RecommendationService(
+        user_service=UserService(),
+        recommendations_agent=RecommendationsAgent(),
+    )

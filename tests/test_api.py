@@ -78,21 +78,6 @@ def test_chat_endpoint_extracts_budget(mock_chat_service) -> None:
     assert data["extracted_preferences"].get("budget") == "luxury"
 
 
-def test_recommend_trip_returns_results() -> None:
-    response = client.post("/recommend-trip", json={})
-    assert response.status_code == 200
-    data = response.json()
-    assert "recommendations" in data
-    assert len(data["recommendations"]) > 0
-
-
-def test_recommend_trip_filter_by_style() -> None:
-    response = client.post("/recommend-trip", json={"travel_style": "beach"})
-    assert response.status_code == 200
-    data = response.json()
-    for rec in data["recommendations"]:
-        assert rec["travel_style"] == "beach"
-
 
 def test_get_user_profile_default(mock_dynamodb) -> None:
     mock_dynamodb.get_item.return_value = {"Item": FULL_ITEM}

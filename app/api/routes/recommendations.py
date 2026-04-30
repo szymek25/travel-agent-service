@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Depends
-from app.models.schemas import TripRecommendationRequest, TripRecommendationResponse
+from app.models.schemas import TripRecommendationByUserResponse
 from app.services.recommendation_service import RecommendationService
 from app.core.dependencies import get_recommendation_service
 
 router = APIRouter()
 
 
-@router.post("/recommend-trip", response_model=TripRecommendationResponse)
-def recommend_trip(
-    request: TripRecommendationRequest,
+@router.get("/recommend-trip/{user_id}", response_model=TripRecommendationByUserResponse)
+def recommend_trip_for_user(
+    user_id: str,
     service: RecommendationService = Depends(get_recommendation_service),
-) -> TripRecommendationResponse:
-    return service.get_recommendations(request)
+) -> TripRecommendationByUserResponse:
+    return service.get_recommendations_for_user(user_id)
+

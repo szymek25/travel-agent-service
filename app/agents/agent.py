@@ -115,11 +115,15 @@ class TravelAgent:
                 interests=[i.strip() for i in interests.split(",") if i.strip()],
             )
             recs = this._recommendations_agent.get_recommendations(prefs)
+            recs_list = [
+                {"destination": r.destination, "description": r.description}
+                for r in recs.recommendations
+            ]
             this._last_recommendations.clear()
-            this._last_recommendations.extend(recs)
-            if not recs:
+            this._last_recommendations.extend(recs_list)
+            if not recs_list:
                 return "No matching recommendations found in the portfolio."
-            return "\n".join(f"- {r['destination']}: {r['description']}" for r in recs)
+            return "\n".join(f"- {r['destination']}: {r['description']}" for r in recs_list)
 
         self._get_travel_recommendations_tool = get_travel_recommendations
         session_manager = FileSessionManager(

@@ -1,11 +1,10 @@
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
 from strands import Agent as StrandsAgent
 from strands.types.exceptions import StructuredOutputException
 
 from app.agents.providers import LLMProvider
-from app.models.domain import UserPreferences
+from app.models.domain import RecommendationItem, RecommendationsOutput, UserPreferences
 
 _RECOMMENDATIONS_SYSTEM_PROMPT = """
 You are a travel recommendations specialist at Wanderlust Travel Agency.
@@ -72,17 +71,6 @@ Return ONLY destinations listed above.
 """.strip()
 
 
-class _RecommendationItem(BaseModel):
-    destination: str = Field(description="Destination name as listed in the portfolio.")
-    description: str = Field(description="1-2 sentence personalised description.")
-
-
-class _RecommendationsOutput(BaseModel):
-    recommendations: List[_RecommendationItem] = Field(
-        description="List of 2-3 recommended destinations.",
-    )
-
-
 def _build_preferences_context(preferences: UserPreferences) -> str:
     """Format user preferences as a concise context string for the recommendations prompt."""
     lines = ["[Traveller profile]"]
@@ -116,13 +104,11 @@ class RecommendationsAgent:
             llm_provider = create_provider("recommendations_agent")
         self._model = llm_provider.get_model()
 
-    def get_recommendations(self, preferences: UserPreferences) -> List[dict]:
+    def get_recommendations(self, preferences: UserPreferences) -> RecommendationsOutput:
         """Return 2-3 destination recommendations matching *preferences*."""
         context = _build_preferences_context(preferences)
         agent = StrandsAgent(model=self._model, system_prompt=_RECOMMENDATIONS_SYSTEM_PROMPT)
         try:
-            result = agent(context, structured_output_model=_RecommendationsOutput)
-            output: _RecommendationsOutput = result.structured_output
-            return [{"destination": r.destination, "description": r.description} for r in output.recommendations]
+            return agent(context, structured_output_model=RecommendationsOutput)
         except StructuredOutputException:
-            return []
+            return RecommendationsOutput(recommendations=[])

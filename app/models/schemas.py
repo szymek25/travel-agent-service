@@ -28,22 +28,8 @@ class ChatResponse(BaseModel):
     recommendations_preview: List[RecommendationPreview]
 
 
-class TripRecommendationRequest(BaseModel):
-    destination: Optional[str] = None
-    travel_style: Optional[str] = None
-    budget: Optional[str | int] = None
-
-
-class TripRecommendation(BaseModel):
-    destination: str
-    description: str
-    estimated_cost: str
-    travel_style: str
-    highlights: List[str]
-
-
-class TripRecommendationResponse(BaseModel):
-    recommendations: List[TripRecommendation]
+class TripRecommendationByUserResponse(BaseModel):
+    recommendations: List[RecommendationPreview]
 
 
 class UserProfileRequest(BaseModel):

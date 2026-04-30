@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from pydantic import BaseModel, Field
+
 
 @dataclass
 class UserProfile:
@@ -55,16 +57,18 @@ class UserPreferences:
 
 
 @dataclass
-class TravelRecommendation:
-    destination: str
-    description: str
-    estimated_cost: str
-    travel_style: str
-    highlights: List[str] = field(default_factory=list)
-
-
-@dataclass
 class AgentResult:
     reply: str
     extracted_preferences: UserPreferences
     recommendations_preview: List[dict]
+
+
+class RecommendationItem(BaseModel):
+    destination: str = Field(description="Destination name as listed in the portfolio.")
+    description: str = Field(description="1-2 sentence personalised description.")
+
+
+class RecommendationsOutput(BaseModel):
+    recommendations: List[RecommendationItem] = Field(
+        description="List of 2-3 recommended destinations.",
+    )

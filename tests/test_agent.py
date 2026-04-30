@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.agents.agent import TravelAgent, _SYSTEM_PROMPT, _build_context_message
-from app.agents.providers import BedrockProvider, LLMProvider, OllamaProvider
+from app.agents.providers import BedrockProvider, LLMProvider, OllamaProvider, create_provider
 from app.agents.recommendations_agent import RecommendationsAgent
-from app.models.domain import AgentResult, UserPreferences
+from app.models.domain import AgentResult, RecommendationItem, RecommendationsOutput, UserPreferences
 
 
 # ---------------------------------------------------------------------------
@@ -254,38 +254,38 @@ class TestGetTravelRecommendationsTool:
         assert self._agent._get_travel_recommendations_tool.tool_name == "get_travel_recommendations"
 
     def test_tool_calls_recommendations_agent(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool(travel_style="beach")
         self._mock_rec_agent.get_recommendations.assert_called_once()
 
     def test_tool_passes_travel_style(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool(travel_style="adventure")
         prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
         assert prefs.travel_style == "adventure"
 
     def test_tool_passes_budget(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool(budget="luxury")
         prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
         assert prefs.budget == "luxury"
 
     def test_tool_parses_comma_separated_destinations(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool(preferred_destinations="Japan, Thailand")
         prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
         assert "Japan" in prefs.preferred_destinations
         assert "Thailand" in prefs.preferred_destinations
 
     def test_tool_parses_comma_separated_interests(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool(interests="hiking, diving")
         prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
         assert "hiking" in prefs.interests
         assert "diving" in prefs.interests
 
     def test_tool_empty_strings_become_none_or_empty_list(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool()
         prefs = self._mock_rec_agent.get_recommendations.call_args[0][0]
         assert prefs.travel_style is None
@@ -294,27 +294,31 @@ class TestGetTravelRecommendationsTool:
         assert prefs.interests == []
 
     def test_tool_updates_last_recommendations(self) -> None:
-        recs = [{"destination": "Bali, Indonesia", "description": "Stunning beaches."}]
+        recs = RecommendationsOutput(
+            recommendations=[RecommendationItem(destination="Bali, Indonesia", description="Stunning beaches.")]
+        )
         self._mock_rec_agent.get_recommendations.return_value = recs
         self._call_tool(travel_style="beach")
-        assert self._agent._last_recommendations == recs
+        assert self._agent._last_recommendations == [
+            {"destination": "Bali, Indonesia", "description": "Stunning beaches."}
+        ]
 
     def test_tool_clears_previous_recommendations(self) -> None:
         self._agent._last_recommendations.append({"destination": "Stale", "description": "Old."})
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         self._call_tool()
         assert self._agent._last_recommendations == []
 
     def test_tool_returns_formatted_string(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = [
-            {"destination": "Nepal", "description": "Legendary Himalayan trekking."},
-        ]
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(
+            recommendations=[RecommendationItem(destination="Nepal", description="Legendary Himalayan trekking.")]
+        )
         result = self._call_tool(travel_style="adventure")
         assert "Nepal" in result
         assert "Legendary Himalayan trekking." in result
 
     def test_tool_returns_no_results_message_when_empty(self) -> None:
-        self._mock_rec_agent.get_recommendations.return_value = []
+        self._mock_rec_agent.get_recommendations.return_value = RecommendationsOutput(recommendations=[])
         result = self._call_tool()
         assert "No matching recommendations" in result
 
@@ -401,3 +405,68 @@ class TestBedrockProvider:
             provider = BedrockProvider(model_id="anthropic.claude", region_name="eu-central-1")
             provider.get_model()
             MockBedrock.assert_called_once_with(model_id="anthropic.claude", region_name="eu-central-1")
+
+
+# ---------------------------------------------------------------------------
+# create_provider factory
+# ---------------------------------------------------------------------------
+
+
+class TestCreateProvider:
+    def test_returns_ollama_provider_when_llm_provider_is_ollama(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "ollama"
+            s.OLLAMA_MODEL_ID = "llama3.1"
+            s.OLLAMA_MODEL_ID_TRAVEL_AGENT = ""
+            provider = create_provider("travel_agent")
+        assert isinstance(provider, OllamaProvider)
+
+    def test_returns_bedrock_provider_when_llm_provider_is_bedrock(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "bedrock"
+            s.BEDROCK_MODEL_ID = "anthropic.claude"
+            s.BEDROCK_MODEL_ID_TRAVEL_AGENT = ""
+            provider = create_provider("travel_agent")
+        assert isinstance(provider, BedrockProvider)
+
+    def test_ollama_global_default_used_when_override_empty(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "ollama"
+            s.OLLAMA_MODEL_ID = "llama3.1"
+            s.OLLAMA_MODEL_ID_EXTRACTOR_AGENT = ""
+            provider = create_provider("extractor_agent")
+        assert provider.model_id == "llama3.1"
+
+    def test_ollama_per_agent_override_used_when_set(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "ollama"
+            s.OLLAMA_MODEL_ID = "llama3.1"
+            s.OLLAMA_MODEL_ID_TRAVEL_AGENT = "mistral"
+            provider = create_provider("travel_agent")
+        assert isinstance(provider, OllamaProvider)
+        assert provider.model_id == "mistral"
+
+    def test_bedrock_global_default_used_when_override_empty(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "bedrock"
+            s.BEDROCK_MODEL_ID = "default.model"
+            s.BEDROCK_MODEL_ID_TRAVEL_AGENT = ""
+            provider = create_provider("travel_agent")
+        assert provider.model_id == "default.model"
+
+    def test_bedrock_per_agent_override_used_when_set(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "bedrock"
+            s.BEDROCK_MODEL_ID = "default.model"
+            s.BEDROCK_MODEL_ID_RECOMMENDATIONS_AGENT = "special.model"
+            provider = create_provider("recommendations_agent")
+        assert isinstance(provider, BedrockProvider)
+        assert provider.model_id == "special.model"
+
+    def test_unknown_agent_name_falls_back_to_global_default(self) -> None:
+        with patch("app.core.config.settings") as s:
+            s.LLM_PROVIDER = "ollama"
+            s.OLLAMA_MODEL_ID = "llama3.1"
+            # getattr with unknown attr returns MagicMock (truthy) — still resolves a provider
+            provider = create_provider("unknown_agent")
+        assert isinstance(provider, OllamaProvider)
