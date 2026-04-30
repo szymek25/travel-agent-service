@@ -11,6 +11,7 @@ A production-ready FastAPI backend for an AI Travel Agent application with a mod
 - [API Endpoints](#api-endpoints)
 - [Run Locally](#run-locally)
 - [Run with Docker](#run-with-docker)
+- [Debug with Docker](#debug-with-docker)
 - [Environment Variables](#environment-variables)
 - [Project Structure](#project-structure)
 
@@ -192,6 +193,34 @@ docker compose -f infra/docker/docker-compose.yml up --build
 ```
 
 The API will be available at [http://localhost:8000](http://localhost:8000).
+
+---
+
+## Debug with Docker
+
+A self-contained `docker-compose.debug.yml` is provided that starts both the API (with `debugpy`) and a local DynamoDB instance.
+
+### Prerequisites
+
+- [VS Code](https://code.visualstudio.com/) with the [Python extension](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+
+### Steps
+
+```bash
+# 1. Start the debug stack (from infra/docker/)
+podman-compose -f docker-compose.debug.yml up --build
+```
+
+The container will pause and wait for a debugger to attach before starting the server.
+
+```bash
+# 2. In VS Code, open the Run & Debug panel (Ctrl+Shift+D / Cmd+Shift+D)
+#    Select "Docker: Attach debugpy" and press F5
+```
+
+The API will be available at [http://localhost:8000](http://localhost:8000) once the debugger attaches. Set breakpoints anywhere in the source — they will be hit on the next matching request.
+
+> **Note:** Hot-reload is disabled in debug mode because uvicorn's file watcher spawns child processes that break debugpy attachment. Rebuild the container (`--build`) to pick up code changes.
 
 ---
 

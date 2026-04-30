@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+      - "5678:5678"
+    environment:
+      - ENV=development
+      - LLM_PROVIDER=ollama
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_MODEL_ID=llama3.1
+      - DYNAMODB_ENDPOINT_URL=http://dynamodb-local:8001
+    volumes:
+      - ../../data:/app/data
+    depends_on:
+      - dynamodb-local
+    command: >
+      python -m debugpy --listen 0.0.0.0:5678 --wait-for-client
+      -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+  dynamodb-local:
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data -port 8001"
+    image: "amazon/dynamodb-local:latest"
+    container_name: dynamodb-local
+    ports:
+      - "8001:8001"
+    volumes:
+      - "./docker/dynamodb:/home/dynamodblocal/data"
+    working_dir: /home/dynamodblocal
